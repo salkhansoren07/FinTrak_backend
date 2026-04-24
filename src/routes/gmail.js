@@ -1,4 +1,4 @@
-import { parseTransaction } from "../../../../TCP/app/lib/parseTransaction.js";
+import { parseTransaction } from "../lib/parseTransaction.js";
 import { getUserFromAccessToken } from "../lib/googleIdentity.js";
 import {
   buildGoogleAuthUrl,
