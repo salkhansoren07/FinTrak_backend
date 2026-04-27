@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 function loadLocalEnvFiles() {
   const currentFile = fileURLToPath(import.meta.url);
-  const projectRoot = path.resolve(path.dirname(currentFile), "../../..");
+  const projectRoot = path.resolve(path.dirname(currentFile), "../..");
   const envSearchRoots = [
     projectRoot,
     path.join(projectRoot, "TCP"),

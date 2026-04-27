@@ -109,6 +109,16 @@ export async function getFintrakUserByIdentifier(supabase, identifier) {
   );
 }
 
+export async function getFintrakUserByEmail(supabase, email) {
+  return readUserQuery((columns) =>
+    supabase
+      .from(TABLE_NAME)
+      .select(columns)
+      .eq("email", normalizeEmail(email))
+      .maybeSingle()
+  );
+}
+
 export async function createFintrakUser(
   supabase,
   { username, email, passwordHash }
@@ -216,6 +226,19 @@ export async function clearFintrakUserPasscode(supabase, userId) {
     })
     .eq("id", userId)
     .select("id, passcode_hash")
+    .single();
+
+  return { data, error };
+}
+
+export async function updateFintrakUserPassword(supabase, userId, passwordHash) {
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      password_hash: passwordHash,
+    })
+    .eq("id", userId)
+    .select("id, password_hash")
     .single();
 
   return { data, error };

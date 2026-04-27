@@ -7,7 +7,9 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerDebugSupabaseRoutes } from "./routes/debugSupabase.js";
 import { registerGmailRoutes } from "./routes/gmail.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerObservabilityRoutes } from "./routes/observability.js";
 import { registerPasscodeRoutes } from "./routes/passcode.js";
+import { registerPasswordResetRoutes } from "./routes/passwordReset.js";
 import { registerTestimonialRoutes } from "./routes/testimonials.js";
 import { registerUserDataRoutes } from "./routes/userData.js";
 
@@ -48,12 +50,14 @@ export function buildApp() {
 
   app.register(registerHealthRoutes);
   app.register(registerAuthRoutes);
+  app.register(registerPasswordResetRoutes);
   app.register(registerPasscodeRoutes);
   app.register(registerUserDataRoutes);
   app.register(registerAccountRoutes);
   app.register(registerTestimonialRoutes);
   app.register(registerGmailRoutes);
   app.register(registerAiInsightsRoutes);
+  app.register(registerObservabilityRoutes);
   app.register(registerDebugSupabaseRoutes);
 
   return app;
