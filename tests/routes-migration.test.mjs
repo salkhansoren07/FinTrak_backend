@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildApp } from "../src/app.js";
 import { hashPassword, verifyPassword } from "../src/lib/passwords.js";
+import { encodeUserDataProfile } from "../src/lib/userDataProfile.js";
 import {
   clearSupabaseAdminForTests,
   setSupabaseAdminForTests,
@@ -224,6 +225,22 @@ async function withApp(run) {
   }
 }
 
+async function loginAndGetSessionCookie(app, credentials) {
+  const response = await app.inject({
+    method: "POST",
+    url: "/auth/login",
+    headers: {
+      "content-type": "application/json",
+    },
+    payload: credentials,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.cookies.length > 0);
+
+  return response.cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+}
+
 function resetTestState() {
   clearSupabaseAdminForTests();
   resetPasswordResetRequestStateForTests();
@@ -385,6 +402,120 @@ test("reset-password route updates the stored password and invalidates reset tok
         supabase.state.users[0].password_hash
       ),
       true
+    );
+  });
+});
+
+test("user-data routes round-trip category rules through the backend profile", async () => {
+  setBaseEnv();
+
+  const passwordHash = await hashPassword("correct-horse-battery-staple");
+  const supabase = createSupabaseMock({
+    users: [
+      {
+        id: "user-data-1",
+        username: "rajiv",
+        email: "rajiv@example.com",
+        password_hash: passwordHash,
+        passcode_hash: null,
+        gmail_refresh_token: null,
+        gmail_email: null,
+        gmail_subject: null,
+        is_admin: false,
+        category_overrides: encodeUserDataProfile({
+          categoryOverrides: { txn1: "Food" },
+          budgetTargets: { Food: 5000 },
+          categoryRules: [
+            {
+              id: "rule-1",
+              field: "vpa",
+              operator: "contains",
+              value: "swiggy@ibl",
+              category: "Food",
+              enabled: true,
+            },
+          ],
+        }),
+      },
+    ],
+  });
+
+  setSupabaseAdminForTests(supabase);
+
+  await withApp(async (app) => {
+    const cookie = await loginAndGetSessionCookie(app, {
+      identifier: "rajiv",
+      password: "correct-horse-battery-staple",
+    });
+
+    const readResponse = await app.inject({
+      method: "GET",
+      url: "/user-data",
+      headers: {
+        cookie,
+      },
+    });
+
+    assert.equal(readResponse.statusCode, 200);
+    assert.deepEqual(readResponse.json(), {
+      categoryOverrides: { txn1: "Food" },
+      budgetTargets: { Food: 5000 },
+      categoryRules: [
+        {
+          id: "rule-1",
+          field: "vpa",
+          operator: "contains",
+          value: "swiggy@ibl",
+          category: "Food",
+          enabled: true,
+          createdAt: null,
+        },
+      ],
+      userKey: "user-data-1",
+      cloudSyncAvailable: true,
+    });
+
+    const writeResponse = await app.inject({
+      method: "PUT",
+      url: "/user-data",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+      },
+      payload: {
+        categoryOverrides: { txn1: "Shopping" },
+        budgetTargets: { Shopping: 2000 },
+        categoryRules: [
+          {
+            id: "rule-2",
+            field: "bank",
+            operator: "equals",
+            value: "HDFC",
+            category: "Bills",
+            enabled: true,
+          },
+        ],
+      },
+    });
+
+    assert.equal(writeResponse.statusCode, 200);
+    assert.deepEqual(writeResponse.json(), { ok: true, cloudSyncAvailable: true });
+    assert.deepEqual(
+      supabase.state.users[0].category_overrides,
+      encodeUserDataProfile({
+        categoryOverrides: { txn1: "Shopping" },
+        budgetTargets: { Shopping: 2000 },
+        categoryRules: [
+          {
+            id: "rule-2",
+            field: "bank",
+            operator: "equals",
+            value: "HDFC",
+            category: "Bills",
+            enabled: true,
+          },
+        ],
+      })
     );
   });
 });

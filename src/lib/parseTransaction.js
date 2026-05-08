@@ -179,7 +179,7 @@ function detectBank({ subject, from, senderAddress, body }) {
   return "Other";
 }
 
-export function parseTransaction(email) {
+export function parseTransaction(email, options = {}) {
   if (!email?.payload) return null;
 
   const headers = email.payload.headers || [];
@@ -235,7 +235,7 @@ export function parseTransaction(email) {
     return null;
   }
 
-  return {
+  const transaction = {
     id: email.id,
     amount,
     type,
@@ -248,4 +248,13 @@ export function parseTransaction(email) {
       month: "short",
     }),
   };
+
+  if (options.includeMlContext) {
+    return {
+      ...transaction,
+      mlContext: fullContext,
+    };
+  }
+
+  return transaction;
 }

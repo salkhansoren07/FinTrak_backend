@@ -252,7 +252,7 @@ export async function deleteFintrakUserById(supabase, userId) {
 export async function updateFintrakUserDataProfile(
   supabase,
   userId,
-  { categoryOverrides, budgetTargets }
+  { categoryOverrides, budgetTargets, categoryRules }
 ) {
   const { data, error } = await supabase
     .from(TABLE_NAME)
@@ -260,6 +260,7 @@ export async function updateFintrakUserDataProfile(
       category_overrides: encodeUserDataProfile({
         categoryOverrides,
         budgetTargets,
+        categoryRules,
       }),
     })
     .eq("id", userId)

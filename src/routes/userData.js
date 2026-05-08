@@ -1,4 +1,5 @@
 import { getFintrakUserById, updateFintrakUserDataProfile } from "../lib/fintrakUsers.js";
+import { normalizeCategoryRules } from "../lib/categoryRules.js";
 import {
   getSupabaseAdmin,
   hasSupabaseAdminConfig,
@@ -21,6 +22,7 @@ export async function registerUserDataRoutes(app) {
         return reply.send({
           categoryOverrides: {},
           budgetTargets: {},
+          categoryRules: [],
           userKey: user.id,
           cloudSyncAvailable: false,
         });
@@ -40,6 +42,7 @@ export async function registerUserDataRoutes(app) {
         return reply.send({
           categoryOverrides: {},
           budgetTargets: {},
+          categoryRules: [],
           userKey: user.id,
           cloudSyncAvailable: false,
         });
@@ -48,6 +51,7 @@ export async function registerUserDataRoutes(app) {
       return reply.send({
         categoryOverrides: appUser?.categoryOverrides || {},
         budgetTargets: appUser?.budgetTargets || {},
+        categoryRules: appUser?.categoryRules || [],
         userKey: user.id,
         cloudSyncAvailable: true,
       });
@@ -56,6 +60,7 @@ export async function registerUserDataRoutes(app) {
       return reply.send({
         categoryOverrides: {},
         budgetTargets: {},
+        categoryRules: [],
         userKey: null,
         cloudSyncAvailable: false,
       });
@@ -76,13 +81,16 @@ export async function registerUserDataRoutes(app) {
       const budgetTargets = isObjectRecord(body?.budgetTargets)
         ? body.budgetTargets
         : null;
+      const categoryRules = Array.isArray(body?.categoryRules)
+        ? normalizeCategoryRules(body.categoryRules)
+        : null;
 
-      if (!categoryOverrides || !budgetTargets) {
+      if (!categoryOverrides || !budgetTargets || categoryRules === null) {
         return reply.code(400).send({
           ok: false,
           cloudSyncAvailable: true,
           error:
-            "Both categoryOverrides and budgetTargets are required for cloud sync saves.",
+            "categoryOverrides, budgetTargets, and categoryRules are required for cloud sync saves.",
         });
       }
 
@@ -98,6 +106,7 @@ export async function registerUserDataRoutes(app) {
       const { error } = await updateFintrakUserDataProfile(supabase, user.id, {
         categoryOverrides,
         budgetTargets,
+        categoryRules,
       });
 
       if (error) {

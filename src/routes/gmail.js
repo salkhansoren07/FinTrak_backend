@@ -1,4 +1,5 @@
 import { parseTransaction } from "../lib/parseTransaction.js";
+import { applyMlCategoryPredictions } from "../lib/mlCategoryClient.js";
 import { getUserFromAccessToken } from "../lib/googleIdentity.js";
 import {
   buildGoogleAuthUrl,
@@ -34,7 +35,7 @@ const MAX_MESSAGES = 200;
 const DETAIL_CONCURRENCY = 8;
 const SERVER_CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_TRANSACTION_CACHE_ENTRIES = 200;
-const TRANSACTION_PARSER_VERSION = 2;
+const TRANSACTION_PARSER_VERSION = 3;
 
 const transactionCache = new Map();
 
@@ -394,6 +395,7 @@ export async function registerGmailRoutes(app) {
   app.get("/gmail-transactions", async (request, reply) => {
     try {
       const user = readSessionFromRequest(request);
+      const shouldForceRefresh = String(request.query?.refresh || "") === "1";
 
       if (!user) {
         return reply.code(401).send({ error: "Unauthorized" });
@@ -409,7 +411,7 @@ export async function registerGmailRoutes(app) {
       const supabase = getSupabaseAdmin();
       const accessToken = await getServerGmailAccessToken(supabase, user);
 
-      const cached = await readTransactionCache(user.id);
+      const cached = shouldForceRefresh ? null : await readTransactionCache(user.id);
       if (cached) {
         return reply.send({
           transactions: cached.transactions,
@@ -430,9 +432,14 @@ export async function registerGmailRoutes(app) {
         .filter((entry) => entry && !entry.error)
         .map((entry) => entry);
 
-      const transactions = successfulDetails
-        .map(parseTransaction)
-        .filter(Boolean)
+      const parsedTransactions = successfulDetails
+        .map((detail) => parseTransaction(detail, { includeMlContext: true }))
+        .filter(Boolean);
+      const mlEnriched = await applyMlCategoryPredictions(parsedTransactions, {
+        requestLog: request.log,
+      });
+
+      const transactions = mlEnriched.transactions
         .sort((a, b) => {
           if (b.timestamp !== a.timestamp) {
             return b.timestamp - a.timestamp;
@@ -445,7 +452,19 @@ export async function registerGmailRoutes(app) {
         fetchedMessages: successfulDetails.length,
         parsedTransactions: transactions.length,
         detailFailures: details.filter((entry) => entry?.error).length,
+        mlCandidatesConsidered: mlEnriched.candidatesConsidered,
+        mlPredictionsApplied: mlEnriched.predictionsApplied,
+        mlPredictedCategoryCounts: mlEnriched.categoryCounts,
+        mlServiceAvailable: mlEnriched.mlServiceAvailable,
       };
+
+      request.log.info(
+        {
+          sessionUserId: user.id,
+          gmailMeta: meta,
+        },
+        "Gmail sync completed with ML category telemetry."
+      );
 
       await writeTransactionCache(user.id, {
         transactions,
