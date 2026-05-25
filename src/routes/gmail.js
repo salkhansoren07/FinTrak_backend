@@ -1,5 +1,4 @@
 import { parseTransaction } from "../lib/parseTransaction.js";
-import { applyMlCategoryPredictions } from "../lib/mlCategoryClient.js";
 import { getUserFromAccessToken } from "../lib/googleIdentity.js";
 import {
   buildGoogleAuthUrl,
@@ -417,7 +416,6 @@ export async function registerGmailRoutes(app) {
           transactions: cached.transactions,
           userKey: user.id,
           cached: true,
-          meta: cached.meta,
         });
       }
 
@@ -432,14 +430,9 @@ export async function registerGmailRoutes(app) {
         .filter((entry) => entry && !entry.error)
         .map((entry) => entry);
 
-      const parsedTransactions = successfulDetails
-        .map((detail) => parseTransaction(detail, { includeMlContext: true }))
-        .filter(Boolean);
-      const mlEnriched = await applyMlCategoryPredictions(parsedTransactions, {
-        requestLog: request.log,
-      });
-
-      const transactions = mlEnriched.transactions
+      const transactions = successfulDetails
+        .map(parseTransaction)
+        .filter(Boolean)
         .sort((a, b) => {
           if (b.timestamp !== a.timestamp) {
             return b.timestamp - a.timestamp;
@@ -447,35 +440,14 @@ export async function registerGmailRoutes(app) {
           return a.id.localeCompare(b.id);
         });
 
-      const meta = {
-        matchedMessages: messages.length,
-        fetchedMessages: successfulDetails.length,
-        parsedTransactions: transactions.length,
-        detailFailures: details.filter((entry) => entry?.error).length,
-        mlCandidatesConsidered: mlEnriched.candidatesConsidered,
-        mlPredictionsApplied: mlEnriched.predictionsApplied,
-        mlPredictedCategoryCounts: mlEnriched.categoryCounts,
-        mlServiceAvailable: mlEnriched.mlServiceAvailable,
-      };
-
-      request.log.info(
-        {
-          sessionUserId: user.id,
-          gmailMeta: meta,
-        },
-        "Gmail sync completed with ML category telemetry."
-      );
-
       await writeTransactionCache(user.id, {
         transactions,
-        meta,
       });
 
       return reply.send({
         transactions,
         userKey: user.id,
         cached: false,
-        meta,
       });
     } catch (error) {
       const message = error?.message || "Failed to sync Gmail";

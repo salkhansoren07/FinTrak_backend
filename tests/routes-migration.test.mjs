@@ -494,6 +494,14 @@ test("user-data routes round-trip category rules through the backend profile", a
             category: "Bills",
             enabled: true,
           },
+          {
+            id: "rule-3",
+            field: "bank",
+            operator: "equals",
+            value: " hdfc ",
+            category: "Shopping",
+            enabled: false,
+          },
         ],
       },
     });
@@ -507,12 +515,12 @@ test("user-data routes round-trip category rules through the backend profile", a
         budgetTargets: { Shopping: 2000 },
         categoryRules: [
           {
-            id: "rule-2",
+            id: "rule-3",
             field: "bank",
             operator: "equals",
-            value: "HDFC",
-            category: "Bills",
-            enabled: true,
+            value: "hdfc",
+            category: "Shopping",
+            enabled: false,
           },
         ],
       })

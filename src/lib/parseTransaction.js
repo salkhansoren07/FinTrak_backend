@@ -4,14 +4,19 @@ function decodeBase64(data) {
     base64.length + ((4 - (base64.length % 4)) % 4),
     "="
   );
-  if (typeof atob === "function") {
-    return atob(padded);
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(padded, "base64").toString("utf8");
   }
-  return Buffer.from(padded, "base64").toString("utf8");
+  if (typeof atob === "function") {
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+  return "";
 }
 
 function normalizeText(text) {
-  return text
+  return String(text || "")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<br\s*\/?>/gi, " ")
@@ -90,17 +95,30 @@ const BANK_DEFINITIONS = [
   },
 ];
 
+function parseAmountValue(rawValue) {
+  const normalized = String(rawValue || "")
+    .replace(/,/g, "")
+    .replace(/\/-$/, "")
+    .trim();
+  const amount = Number(normalized);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
 function extractAmount(text) {
   const patterns = [
-    /(?:INR|Rs\.?|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
-    /([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:INR|Rs\.?|₹)/i,
-    /amount(?:\s+of)?\s*(?:INR|Rs\.?|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /(?:debited|credited|withdrawn|paid|spent|received|deposited|refunded|reversed)\s+(?:by|with|for)?\s*(?:an?\s+)?(?:transaction amount of\s*)?(?:inr|rs\.?|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\/-)?/i,
+    /(?:a\/c|account)[^.!?\n]{0,40}(?:debited|credited)[^.!?\n]{0,20}(?:for|with|by)?\s*(?:inr|rs\.?|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\/-)?/i,
+    /transaction amount(?:\s+of)?\s*(?:is\s*)?(?:inr|rs\.?|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\/-)?/i,
+    /(?:paid with|paid via|amount of|amount)\s*(?:inr|rs\.?|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\/-)?/i,
+    /(?:inr|rs\.?|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\/-)?\s*(?:credited|debited|paid|received|withdrawn|spent|deposited|refund|reversed|transaction)?/i,
+    /([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?:\/-)?\s*(?:inr|rs\.?|₹)\s*(?:credited|debited|paid|received|withdrawn|spent|deposited|refund|reversed|transaction)?/i,
   ];
 
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1]) {
-      return Number(match[1].replace(/,/g, ""));
+    const amount = parseAmountValue(match?.[1]);
+    if (amount > 0) {
+      return amount;
     }
   }
 
@@ -109,7 +127,7 @@ function extractAmount(text) {
 
 function detectType(text) {
   if (
-    /(debited|spent|paid|sent|withdrawn|purchase|dr\b|transferred to)/i.test(
+    /(debited|spent|paid|sent|withdrawn|purchase|dr\b|transferred to|atm withdrawal|withdrawal)/i.test(
       text
     )
   ) {
@@ -117,7 +135,7 @@ function detectType(text) {
   }
 
   if (
-    /(credited|received|deposited|refund|reversed|cr\b|transferred from)/i.test(
+    /(credited|received|deposited|refund|refunded|reversed|salary|cr\b|transferred from)/i.test(
       text
     )
   ) {
@@ -128,13 +146,7 @@ function detectType(text) {
 }
 
 function hasTransactionSignal(text) {
-  return /(debited|credited|spent|received|paid|payment|upi|withdrawn|deposited|deposit|refund|reversed|txn|transaction|transferred)/i.test(
-    text
-  );
-}
-
-function hasBankSignal(text) {
-  return /(account|a\/c|ac(?:count)?|bank|upi|card|wallet|merchant|vpa|utr|ref(?:erence)?\s*no|txn\s*id|available\s*bal)/i.test(
+  return /(debited|credited|spent|received|paid|payment|upi|withdrawn|withdrawal|deposited|deposit|refund|refunded|reversed|txn|transaction|transferred|salary|atm)/i.test(
     text
   );
 }
@@ -179,7 +191,33 @@ function detectBank({ subject, from, senderAddress, body }) {
   return "Other";
 }
 
-export function parseTransaction(email, options = {}) {
+function isNonTransactionNoise(text) {
+  return /\b(?:otp|one\s+time\s+password|login|password|verification\s+code|offer|cashback\s+offer|sale|statement\s+generated|e-?statement|newsletter|promotional)\b/i.test(
+    text
+  );
+}
+
+function calculateConfidence({
+  amount,
+  type,
+  bank,
+  vpa,
+  fullContext,
+  senderAddress,
+}) {
+  let score = 0;
+
+  if (amount > 0) score += 0.25;
+  if (type !== "Unknown") score += 0.2;
+  if (bank !== "Other") score += 0.2;
+  if (vpa !== "N/A") score += 0.1;
+  if (hasTransactionSignal(fullContext)) score += 0.15;
+  if (hasTrustedSender(senderAddress)) score += 0.1;
+
+  return Math.max(0, Math.min(1, Number(score.toFixed(2))));
+}
+
+export function parseTransaction(email) {
   if (!email?.payload) return null;
 
   const headers = email.payload.headers || [];
@@ -199,6 +237,10 @@ export function parseTransaction(email, options = {}) {
   }
 
   const fullContext = normalizeText(`${subject} ${from} ${decoded}`);
+  if (isNonTransactionNoise(fullContext)) {
+    return null;
+  }
+
   const amount = extractAmount(fullContext);
   const type = detectType(fullContext);
   const vpa = extractVpa(fullContext);
@@ -207,6 +249,14 @@ export function parseTransaction(email, options = {}) {
     from,
     senderAddress,
     body: decoded,
+  });
+  const confidence = calculateConfidence({
+    amount,
+    type,
+    bank,
+    vpa,
+    fullContext,
+    senderAddress,
   });
 
   let category = "Other";
@@ -225,17 +275,11 @@ export function parseTransaction(email, options = {}) {
   const timestamp = Number(email.internalDate);
   const dateObj = new Date(timestamp);
 
-  if (
-    !amount ||
-    type === "Unknown" ||
-    !hasTransactionSignal(fullContext) ||
-    (!hasBankSignal(fullContext) && !hasTrustedSender(senderAddress)) ||
-    (bank === "Other" && vpa === "N/A")
-  ) {
+  if (amount <= 0 || confidence < 0.55) {
     return null;
   }
 
-  const transaction = {
+  return {
     id: email.id,
     amount,
     type,
@@ -247,14 +291,6 @@ export function parseTransaction(email, options = {}) {
       day: "2-digit",
       month: "short",
     }),
+    confidence,
   };
-
-  if (options.includeMlContext) {
-    return {
-      ...transaction,
-      mlContext: fullContext,
-    };
-  }
-
-  return transaction;
 }

@@ -2,6 +2,18 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function normalizeRuleField(field) {
+  return normalizeText(field).toLowerCase();
+}
+
+function normalizeRuleOperator(operator) {
+  return normalizeText(operator).toLowerCase();
+}
+
+function normalizeRuleValue(value) {
+  return normalizeText(value).toLowerCase();
+}
+
 function isSupportedField(field) {
   return field === "vpa" || field === "bank";
 }
@@ -16,8 +28,8 @@ function normalizeCategoryRule(rule) {
   }
 
   const id = normalizeText(rule.id);
-  const field = normalizeText(rule.field).toLowerCase();
-  const operator = normalizeText(rule.operator).toLowerCase();
+  const field = normalizeRuleField(rule.field);
+  const operator = normalizeRuleOperator(rule.operator);
   const value = normalizeText(rule.value);
   const category = normalizeText(rule.category);
 
@@ -45,12 +57,25 @@ function normalizeCategoryRule(rule) {
   };
 }
 
+function buildCategoryRuleSignature(rule) {
+  const field = normalizeRuleField(rule?.field);
+  const operator = normalizeRuleOperator(rule?.operator);
+  const value = normalizeRuleValue(rule?.value);
+
+  if (!isSupportedField(field) || !isSupportedOperator(operator) || !value) {
+    return null;
+  }
+
+  return `${field}:${operator}:${value}`;
+}
+
 export function normalizeCategoryRules(rules) {
   if (!Array.isArray(rules)) {
     return [];
   }
 
-  const byId = new Map();
+  const bySignature = new Map();
+  const signatureById = new Map();
 
   for (const rule of rules) {
     const normalized = normalizeCategoryRule(rule);
@@ -58,8 +83,20 @@ export function normalizeCategoryRules(rules) {
       continue;
     }
 
-    byId.set(normalized.id, normalized);
+    const signature = buildCategoryRuleSignature(normalized);
+    if (!signature) {
+      continue;
+    }
+
+    const priorSignature = signatureById.get(normalized.id);
+    if (priorSignature) {
+      bySignature.delete(priorSignature);
+    }
+
+    bySignature.delete(signature);
+    bySignature.set(signature, normalized);
+    signatureById.set(normalized.id, signature);
   }
 
-  return [...byId.values()];
+  return [...bySignature.values()];
 }
